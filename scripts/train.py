@@ -302,6 +302,10 @@ def main(cfg: DictConfig) -> None:
         policy_params_fn=policy_params_fn,
     )
 
+    # Checkpoints are saved asynchronously; without this wait the interpreter can exit
+    # before the last save is finalized, leaving a *.orbax-checkpoint-tmp directory.
+    ckpt_mgr.wait_until_finished()
+
     try:
         checkpointing.cleanup_run_state(cfg)
         logging.info("Training completed successfully, cleaned up run state")

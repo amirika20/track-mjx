@@ -141,8 +141,14 @@ def run_evaluation(
     self._key, unroll_key = jax.random.split(self._key)
 
     t = time.time()
+    # Pin inputs to one device: the initial eval state is uncommitted, later ones and the
+    # post-training params carry pmap shardings. Different input shardings retrace and
+    # recompile the unroll; placement does not change values.
+    device = jax.local_devices()[0]
     eval_state = self._generate_eval_unroll(
-        self._eval_state_to_donate, policy_params, unroll_key
+        jax.device_put(self._eval_state_to_donate, device),
+        jax.device_put(policy_params, device),
+        unroll_key,
     )
     self._eval_state_to_donate = eval_state
     eval_metrics = eval_state.info["eval_metrics"]
