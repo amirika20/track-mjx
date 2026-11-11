@@ -12,11 +12,23 @@ from track_mjx.imitation import is_sparse_imitation
 _PRESERVE_INFO_KEY = "AutoResetWrapper_preserve_info"
 
 
+def _strong_metrics(metrics: dict[str, jax.Array]) -> dict[str, jax.Array]:
+    """Drop weak types from metrics so reset and step outputs share one signature.
+
+    Task rewards like ``weight * in_range`` (Python float times array) come out
+    weak-typed from ``reset`` but strong after accumulation in ``step``. Brax's
+    Evaluator feeds the previous eval state back into its jitted unroll, so that
+    mismatch forces a recompile of ``generate_eval_unroll`` on the second eval.
+    """
+    return {name: jnp.asarray(value).astype(value.dtype) for name, value in metrics.items()}
+
+
 class EpisodeWrapper(brax_training.EpisodeWrapper):
     """Tracks episode metrics using the environment state's batch shape."""
 
     def reset(self, rng: jax.Array):
         state = self.env.reset(rng)
+        state = state.replace(metrics=_strong_metrics(state.metrics))
         state.info["steps"] = jnp.zeros_like(state.done)
         state.info["truncation"] = jnp.zeros_like(state.done)
         state.info["episode_done"] = jnp.zeros_like(state.done)
@@ -32,6 +44,7 @@ class EpisodeWrapper(brax_training.EpisodeWrapper):
 
     def step(self, state, action: jax.Array):
         state = super().step(state, action)
+        state = state.replace(metrics=_strong_metrics(state.metrics))
         # Reference exhaustion is a time limit only if no true failure also occurred.
         reference_truncation = jnp.logical_and(
             state.info.get("truncated", False),
